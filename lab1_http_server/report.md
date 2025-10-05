@@ -10,6 +10,7 @@ Additionally, I created an HTTP client that can request files from the server an
 ### Running the Server
 To run the server, make sure you are in the correct directory `cd lab1_http_server/server`, then use the following 
 command: `python3 server.py`
+
 ![img.png](images/ss2.png)
 
 ### Browsing Requests
