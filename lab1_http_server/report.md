@@ -8,10 +8,15 @@ Additionally, I created an HTTP client that can request files from the server an
 ![img.png](images/ss1.png)
 
 ### Running the Server
-To run the server, make sure you are in the correct directory `cd lab1_http_server/server`, then use the following 
+To run the server you have two options:
+- **Locally with Python**: make sure you are in the correct directory `cd lab1_http_server/server`, then use the following 
 command: `python3 server.py`
 
 ![img.png](images/ss2.png)
+
+- **Using Docker**: build the Docker image and run the container with the following commands, making sure you are in the
+root directory of the project `lab1_http_server` and run `docker-compose up --build`
+
 
 ### Browsing Requests
 After running the server, we can access it through a web browser at http://localhost:8080/. The browser sends HTTP 
