@@ -39,7 +39,7 @@ elif ext in [".png", ".jpg", ".jpeg", ".pdf"]:
     save_path = os.path.join(SAVE_DIR, os.path.basename(filename))
     with open(save_path, "wb") as f:
         f.write(body)
-    print(f"{filename} to {save_path}")
+    print(f"{filename} saved to {save_path}")
 else:
     print("Unknown file type, printing as text:")
     print(body.decode(errors='ignore'))
