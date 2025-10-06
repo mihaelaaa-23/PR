@@ -1,8 +1,6 @@
 services:
   server:
-    build:
-      context: ./server
+    build: .
     ports:
       - "8080:8080"
-    volumes:
-      - ./server/content:/app/content
+    command: python server/server.py
