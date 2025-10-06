@@ -5,14 +5,14 @@ Additionally, I created an HTTP client that can request files from the server an
 
 ## 1. Server Implementation
 ### Directory Structure
-![img.png](images/ss1.png)
+![img.png](server/content/subdir/images/ss1.png)
 
 ### Running the Server
 To run the server you have two options:
 - **Locally with Python**: make sure you are in the correct directory `cd lab1_http_server/server`, then use the following 
 command: `python3 server.py`
 
-![img.png](images/ss2.png)
+![img.png](server/content/subdir/images/ss2.png)
 
 - **Using Docker**: build the Docker image and run the container with the following commands, making sure you are in the
 root directory of the project `lab1_http_server` and run `docker-compose up --build`
@@ -26,22 +26,31 @@ Example workflow:
 
 1. Access the homepage 
    - Open http://localhost:8080/ in your browser. 
-   - The server responds with `index.html`, which is displayed as the homepage. 
-   - ![img.png](images/ss3.png)
+   - ![img.png](server/content/subdir/images/ss0.png)
+
+2. View an HTML file
+   - The server responds with `index.html`. 
+   - ![img.png](server/content/subdir/images/ss3.png)
 
 2. View an image 
    - Click on the image link or reference in the HTML page. 
    - The browser sends a request for `image.png`. 
    - The server responds with the PNG file, which the browser displays. 
-   - ![img.png](images/ss4.png)
+   - ![img.png](server/content/subdir/images/ss4.png)
 
 3. Open a PDF file
    - Click on a PDF link, e.g., `Syllabus_PR_FAF-23x.pdf`. 
    - The browser requests the PDF from the server. 
    - The server sends the PDF file, and the browser either opens it or prompts for download. 
-   - ![img.png](images/ss5.png)
+   - ![img.png](server/content/subdir/images/ss5.png)
 
-4. Terminal output
+4. Open an unknown type file
+   - Click on a non-existent file link, e.g., `404.png` or an unknown file type `memoji.jpg`. 
+   - The server responds with a 404 Not Found message. 
+   - The browser displays the 404 error page.
+   - ![img.png](server/content/subdir/images/ss10.png)
+
+5. Terminal output
    - In the server terminal, each browser request is logged, showing the client IP, requested file, and request headers.
    ```shell
    Connected by ('127.0.0.1', 58757)
@@ -110,7 +119,7 @@ Example workflow:
 ### Nested Directory Listing
 When a directory path is requested (e.g., `/subdir/`), the server generates an HTML directory listing with hyperlinks to 
 all files inside.
-![img.png](images/ss6.png)
+![img.png](server/content/subdir/images/ss6.png)
 
 Notice that hidden files like `.DS_Store` are ignored.
 
@@ -236,7 +245,7 @@ Status: HTTP/1.1 200 OK
 image.png to downloads/image.png
 ```
 
-![img.png](images/ss7.png)
+![img.png](server/content/subdir/images/ss7.png)
 
 #### Accessing Nested directory files
 The client can also request files from nested directories.
@@ -247,11 +256,11 @@ The client can also request files from nested directories.
 Status: HTTP/1.1 200 OK
 subdir/PR_Seminars_Guideline.pdf to downloads/PR_Seminars_Guideline.pdf
 ```
-![img.png](images/ss8.png)
+![img.png](server/content/subdir/images/ss8.png)
 
 #### 404 Not Found Handling
 If the requested file does not exist on the server, the client receives a 404 Not Found response.
-![img.png](images/ss9.png)
+![img.png](server/content/subdir/images/ss9.png)
 
 ### Code Implementation
 The client is also implemented in Python using TCP sockets. The main features include:
