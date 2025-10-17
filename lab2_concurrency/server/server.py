@@ -15,6 +15,11 @@ MIME_TYPES = {
 
 hit_counter = {}
 counter_lock = threading.Lock()
+rate_limits = {}
+rate_limit_lock = threading.Lock()
+RATE_LIMIT = 5  # req per s
+RATE_WINDOW = 10  # seconds
+
 
 def get_mime_type(filename):
     _, ext = os.path.splitext(filename)
@@ -59,6 +64,13 @@ def generate_directory_listing(path, relative_path):
 
 
 def handle_client(conn, addr):
+    client_ip = addr[0]
+    if is_rate_limited(client_ip):
+        response = build_response("429 Too Many Requests",
+                                  b"<h1>429 Too Many Requests</h1><p>Rate limit exceeded. Please try again later.</p>")
+        conn.sendall(response)
+        return
+
     with conn:
         print(f"Connected by {addr}")
         request = conn.recv(1024).decode("utf-8")  # receive the http req
@@ -114,6 +126,20 @@ def handle_client(conn, addr):
             body = "<h1>404 Not Found</h1>".encode()
             response = build_response("404 Not Found", body)
             conn.sendall(response)
+
+
+def is_rate_limited(client_ip):
+    current_time = time.time()
+    with rate_limit_lock:
+        if client_ip not in rate_limits:
+            rate_limits[client_ip] = []
+        # Remove timestamps older than the rate limit window
+        rate_limits[client_ip] = [timestamp for timestamp in rate_limits[client_ip] if
+                                  current_time - timestamp < RATE_WINDOW]
+        if len(rate_limits[client_ip]) >= RATE_LIMIT:
+            return True
+        rate_limits[client_ip].append(current_time)
+    return False
 
 
 def main():
