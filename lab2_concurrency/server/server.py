@@ -1,5 +1,7 @@
 import socket
 import os
+import threading
+import time
 
 HOST = "0.0.0.0"
 PORT = 8080
@@ -11,6 +13,8 @@ MIME_TYPES = {
     ".pdf": "application/pdf",
 }
 
+hit_counter = {}
+counter_lock = threading.Lock()
 
 def get_mime_type(filename):
     _, ext = os.path.splitext(filename)
@@ -29,11 +33,13 @@ def build_response(status, body, content_type="text/html"):
 def generate_directory_listing(path, relative_path):
     items = os.listdir(path)
     html = f"<html><head><title>Directory listing for /{relative_path}</title></head><body>"
-    html += f"<h2>Directory listing for /{relative_path}</h2><ul>"
+    html += f"<h2>Directory listing for /{relative_path}</h2>"
+    html += "<table border='1'><tr><th>File / Directory</th><th>Hits</th></tr>"
 
     if relative_path:
         parent_path = os.path.dirname(relative_path.rstrip('/'))
-        html += f'<li><a href="/{parent_path}">../</a></li>'
+        html += f'<tr><td><a href="/{parent_path}">../</a></td><td></td></tr>'
+
     for item in items:
         if item.startswith("."):
             continue
@@ -44,51 +50,81 @@ def generate_directory_listing(path, relative_path):
         else:
             url = f"/{item}"
 
-        html += f'<li><a href="{url}">{display_name}</a></li>'
-    html += "</ul></body></html>"
+        # Get hit count for this file
+        hits = hit_counter.get(url, 0)
+        html += f'<tr><td><a href="{url}">{display_name}</a></td><td>{hits}</td></tr>'
+
+    html += "</table></body></html>"
     return html
+
+
+def handle_client(conn, addr):
+    with conn:
+        print(f"Connected by {addr}")
+        request = conn.recv(1024).decode("utf-8")  # receive the http req
+        print(f"Request:\n{request}")
+
+        if not request:
+            return
+
+        time.sleep(1)
+
+        path = request.split(" ")[1]
+        relative_path = path.lstrip("/")  # remove leading slash
+        filepath = os.path.join(BASE_DIR, relative_path)
+
+        if os.path.exists(filepath):
+            if os.path.isfile(filepath):
+                with counter_lock:
+                    if path not in hit_counter:
+                        hit_counter[path] = 0
+                    print(f"Thread {threading.current_thread().name}: Reading count for {path}")
+                    current_count = hit_counter[path]
+                    print(f"Thread {threading.current_thread().name}: Current count is {current_count}")
+                    time.sleep(0.1)  # Bigger delay to force interleaving
+                    hit_counter[path] = current_count + 1
+                    print(f"Thread {threading.current_thread().name}: Updated count to {current_count + 1}")
+
+                _, ext = os.path.splitext(filepath)
+                if ext in MIME_TYPES:
+                    with open(filepath, "rb") as f:
+                        body = f.read()
+                    content_type = MIME_TYPES[ext]
+                    response = build_response("200 OK", body, content_type)
+                    conn.sendall(response)
+                else:
+                    body = "<h1>404 Not Found</h1>".encode()
+                    response = build_response("404 Not Found", body)
+                    conn.sendall(response)
+            elif os.path.isdir(filepath):
+                with counter_lock:
+                    if path not in hit_counter:
+                        hit_counter[path] = 0
+                    print(f"Thread {threading.current_thread().name}: Reading count for {path}")
+                    current_count = hit_counter[path]
+                    print(f"Thread {threading.current_thread().name}: Current count is {current_count}")
+                    time.sleep(0.01)
+                    hit_counter[path] = current_count + 1
+                    print(f"Thread {threading.current_thread().name}: Updated count to {current_count + 1}")
+
+                listing_html = generate_directory_listing(filepath, relative_path)
+                response = build_response("200 OK", listing_html.encode(), "text/html")
+                conn.sendall(response)
+        else:
+            body = "<h1>404 Not Found</h1>".encode()
+            response = build_response("404 Not Found", body)
+            conn.sendall(response)
 
 
 def main():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((HOST, PORT))
-        s.listen(1)
+        s.listen(5)
         print(f"Serving on http://localhost:{PORT}")
         while True:
             conn, addr = s.accept()
-            with conn:
-                print(f"Connected by {addr}")
-                request = conn.recv(1024).decode("utf-8")  # receive the http req
-                print(f"Request:\n{request}")
-
-                if not request:
-                    continue
-
-                path = request.split(" ")[1]
-                relative_path = path.lstrip("/")  # remove leading slash
-                filepath = os.path.join(BASE_DIR, relative_path)
-
-                if os.path.exists(filepath):
-                    if os.path.isfile(filepath):
-                        _, ext = os.path.splitext(filepath)
-                        if ext in MIME_TYPES:
-                            with open(filepath, "rb") as f:
-                                body = f.read()
-                            content_type = MIME_TYPES[ext]
-                            response = build_response("200 OK", body, content_type)
-                            conn.sendall(response)
-                        else:
-                            body = "<h1>404 Not Found</h1>".encode()
-                            response = build_response("404 Not Found", body)
-                            conn.sendall(response)
-                    elif os.path.isdir(filepath):
-                        listing_html = generate_directory_listing(filepath, relative_path)
-                        response = build_response("200 OK", listing_html.encode(), "text/html")
-                        conn.sendall(response)
-                else:
-                    body = "<h1>404 Not Found</h1>".encode()
-                    response = build_response("404 Not Found", body)
-                    conn.sendall(response)
+            thread = threading.Thread(target=handle_client, args=(conn, addr))
+            thread.start()
 
 
 if __name__ == "__main__":
