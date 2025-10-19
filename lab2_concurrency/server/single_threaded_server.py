@@ -2,7 +2,7 @@ import socket
 import os
 
 HOST = "0.0.0.0"
-PORT = 8081
+PORT = 8080
 BASE_DIR = os.path.join(os.path.dirname(__file__), "content")
 
 MIME_TYPES = {
