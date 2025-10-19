@@ -1,5 +1,6 @@
 import socket
 import os
+import time
 
 HOST = "0.0.0.0"
 PORT = 8080
@@ -10,6 +11,8 @@ MIME_TYPES = {
     ".png": "image/png",
     ".pdf": "application/pdf",
 }
+
+hit_counter = {}
 
 
 def get_mime_type(filename):
@@ -26,14 +29,16 @@ def build_response(status, body, content_type="text/html"):
     return response
 
 
-def generate_directory_listing(path, relative_path):
+def generate_directory_listing(path, relative_path, client_ip):
     items = os.listdir(path)
     html = f"<html><head><title>Directory listing for /{relative_path}</title></head><body>"
-    html += f"<h2>Directory listing for /{relative_path}</h2><ul>"
+    html += f"<h2>Directory listing for /{relative_path}</h2>"
+    html += "<table border='1'><tr><th>File / Directory</th><th>Hits</th></tr>"
 
     if relative_path:
         parent_path = os.path.dirname(relative_path.rstrip('/'))
-        html += f'<li><a href="/{parent_path}">../</a></li>'
+        html += f'<tr><td><a href="/{parent_path}">../</a></td><td></td></tr>'
+
     for item in items:
         if item.startswith("."):
             continue
@@ -44,8 +49,11 @@ def generate_directory_listing(path, relative_path):
         else:
             url = f"/{item}"
 
-        html += f'<li><a href="{url}">{display_name}</a></li>'
-    html += "</ul></body></html>"
+        # Get hit count for this file
+        hits = hit_counter.get(client_ip, {}).get(url, 0)
+        html += f'<tr><td><a href="{url}">{display_name}</a></td><td>{hits}</td></tr>'
+
+    html += "</body></html>"
     return html
 
 
@@ -63,6 +71,8 @@ def main():
 
                 if not request:
                     continue
+
+                time.sleep(1)
 
                 path = request.split(" ")[1]
                 relative_path = path.lstrip("/")  # remove leading slash
