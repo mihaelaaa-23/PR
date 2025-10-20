@@ -28,6 +28,12 @@ services:
     ports:
       - "8080:8080"
     command: python server/server.py
+
+  single_threaded:
+    build: .
+    ports:
+      - "8081:8080"
+    command: python server/single_threaded_server.py
 ```
 
 ## Starting the Server
