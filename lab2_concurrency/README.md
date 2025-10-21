@@ -48,7 +48,11 @@ This builds the Docker image and starts the server on port 8080.
 
 ## Multithreaded HTTP Server Implementation
 
-The server is implemented using Python's `threading` module to handle multiple client connections concurrently. Each client connection is handled in a separate thread, allowing the server to process multiple requests simultaneously.
+In this lab, I implemented a multithreaded HTTP server in Python that can handle multiple client connections at the same time.
+The goal was to modify a basic single-threaded server so it could process requests concurrently, implement request counting, and add rate limiting for each client IP.
+
+The server uses Python’s threading module — each client connection runs in a separate thread.
+Alternatively, a thread pool could be used, but I chose the thread-per-request model because it’s easier to understand and clearly shows concurrency in action.
 
 ### Key Features
 
@@ -62,22 +66,24 @@ The server is implemented using Python's `threading` module to handle multiple c
 
 ### Multithreaded vs. Single-threaded Server
 
-The multithreaded server handles concurrent requests in parallel, while the single-threaded server processes them sequentially. With a simulated processing time of ~1 second per request, the performance difference becomes significant:
+To compare concurrency performance, I tested both single-threaded and multithreaded versions of the server.
+I simulated 10 concurrent requests (each taking about 1 second) using a Python script with `ThreadPoolExecutor`.
 
 | Server Type     | 10 Concurrent Requests | Processing Time | Average Response Time |
 |-----------------|------------------------|-----------------|-----------------------|
 | Single-threaded | Sequential processing  | ~10.58 seconds  | 5.73 seconds          |
 | Multithreaded   | Parallel processing    | ~1.22 seconds   | 1.13 seconds          |
 
-The multithreaded server achieves significantly better throughput by handling multiple requests concurrently, which is essential for real-world web server applications.
+The single-threaded server processes one request at a time, so total time grows linearly. The multithreaded server achieves significantly better throughput by handling multiple requests concurrently, which is essential for real-world web server applications.
 
 ## Request Counter Implementation
 
-The request counter tracks how many times each resource has been accessed. This feature demonstrates thread synchronization concepts:
+The request counter tracks how many times each resource has been accessed. This feature demonstrates thread synchronization concepts.
+Each resource (like index.html or /subdir/) has its own counter stored in a dictionary.
 
 ### Naive Implementation (Race Condition)
 
-Initially, the counter was implemented without synchronization:
+At first, I implemented it without synchronization, which caused race conditions when several threads updated the same counter at once.
 
 ```python
 hit_counter[path] = hit_counter.get(path, 0) + 1
@@ -95,6 +101,28 @@ This implementation is vulnerable to race conditions. When multiple threads acce
 4. Thread B increments and stores the count (also 6)
 5. The count should be 7, but it's 6 due to the race condition
 
+### Race Condition (No Lock) Example
+![img.png](images/img_0.png)
+
+Multiple threads read the same hit_counter value before any of them writes back.
+
+Example:
+
+```
+Thread-4: Current count is 6
+Thread-5: Current count is 6
+```
+
+
+Both threads see 6 at the same time.
+
+Then they update the counter independently:
+```
+Thread-4: Updated count to 7
+Thread-5: Updated count to 7
+```
+The final count should have increased by 2, but it only increased by 1 — a classic race condition.
+
 ### Thread-safe Implementation (With Lock)
 
 The thread-safe implementation uses a lock to ensure atomic operations:
@@ -110,6 +138,34 @@ with counter_lock:
 ```
 
 With the lock, only one thread can modify the counter at a time, preventing race conditions.
+This prevents incorrect counts caused by overlapping read/write operations.
+To make race conditions more visible during testing, I added a small time.sleep(0.1) delay inside the locked section — this allowed me to see how threads interleave.
+
+### Race Condition (With Lock) Example
+![img_1.png](images/img_1.png)
+Each thread waits its turn to enter the with counter_lock: block.
+```
+Thread-1: Current count is 1 → Updated count to 2
+Thread-4: Current count is 2 → Updated count to 3
+Thread-2: Current count is 3 → Updated count to 4
+```
+
+Even though threads started roughly at the same time, the lock enforces one-at-a-time access, so there’s no race condition anymore. The counter increments properly without skipping or overwriting values.
+
+The order is not necessarily Thread-1, Thread-2, …. Thread scheduling is done by the OS, so whichever thread reaches the lock first gets to run.
+```
+Thread-1 → Thread-4 → Thread-2 → Thread-5 …
+```
+This is normal in multithreaded programs.
+
+
+### Counter Display in Browser
+The request counter is displayed on each served page, showing how many times that resource has been accessed.
+![img_2.png](images/img_2.png)
+
+If there are too many requests (more than 5 per second) happening simultaneously, the browser will display the `429 Too Many Requests` error due to rate limiting.
+![img_3.png](images/img_3.png)
+
 ### Observation
 
 When requesting a directory (/subdir), extra requests are sometimes counted.
@@ -117,8 +173,7 @@ This happens because the browser may request additional files inside the folder 
 
 ## Rate Limiting Implementation
 
-The server implements IP-based rate limiting to prevent abuse:
-
+To prevent one client from spamming the server, I added IP-based rate limiting.
 - Each client IP is limited to 10 requests per second
 - Requests exceeding the limit receive a 429 Too Many Requests response
 - Thread-safe implementation using per-IP locks and a global lock
