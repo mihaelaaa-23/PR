@@ -14,7 +14,7 @@ MIME_TYPES = {
 }
 
 hit_counter = {}
-USE_LOCK = False
+USE_LOCK = True
 counter_lock = threading.Lock()
 
 rate_limits = {}
@@ -92,9 +92,12 @@ def update_counter(client_ip, path):
 def handle_client(conn, addr):
     client_ip = addr[0]
     if is_rate_limited(client_ip):
-        response = build_response("429 Too Many Requests",
-                                  b"<h1>429 Too Many Requests</h1><p>Rate limit exceeded. Please try again later.</p>")
+        response = build_response(
+            "429 Too Many Requests",
+            b"<h1>429 Too Many Requests</h1><p>Rate limit exceeded. Please try again later.</p>"
+        )
         conn.sendall(response)
+        conn.close()   # close the connection immediately
         return
 
     with conn:
@@ -105,7 +108,7 @@ def handle_client(conn, addr):
         if not request:
             return
 
-        # time.sleep(1)
+        time.sleep(1)
 
         path = request.split(" ")[1]
         relative_path = path.lstrip("/")  # remove leading slash
@@ -197,6 +200,15 @@ def main():
         print(f"Serving on http://localhost:{PORT}")
         while True:
             conn, addr = s.accept()
+            client_ip = addr[0]
+            if is_rate_limited(client_ip):
+                response = build_response(
+                    "429 Too Many Requests",
+                    b"<h1>429 Too Many Requests</h1><p>Rate limit exceeded. Please try again later.</p>"
+                )
+                conn.sendall(response)
+                conn.close()
+                continue
             thread = threading.Thread(target=handle_client, args=(conn, addr))
             thread.start()
 
