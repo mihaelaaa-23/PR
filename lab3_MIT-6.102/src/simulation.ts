@@ -3,7 +3,7 @@
  */
 
 import assert from 'node:assert';
-import { Board } from './board';
+import { Board } from './board.js';
 
 /**
  * Example code for simulating a game.

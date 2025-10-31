@@ -7,8 +7,8 @@ import process from 'node:process';
 import { Server } from 'node:http';
 import express, { Application } from 'express';
 import { StatusCodes }  from 'http-status-codes';
-import { Board } from './board';
-import { look, flip, map, watch } from './commands';
+import { Board } from './board.js';
+import { look, flip, map, watch } from './commands.js';
 
 /**
  * Start a game server using the given arguments.
