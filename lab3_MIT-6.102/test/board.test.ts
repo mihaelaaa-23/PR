@@ -4,18 +4,26 @@
 
 import assert from 'node:assert';
 import fs from 'node:fs';
-import { Board } from '../src/board';
+import { Board } from '../src/board.js';
 
 
 /**
  * Tests for the Board abstract data type.
  */
-describe('Board', function() {
-    
-    // Testing strategy
-    //   TODO
+describe('Board parse + render', () => {
+    it('parses perfect.txt and renders all down', async () => {
+    const b = await Board.parseFromFile('boards/perfect.txt');
+    const state = b.renderFor('alice');
 
+    const lines = state.trimEnd().split('\n');
+    assert(lines[0], 'first line should exist');
+    assert.match(lines[0], /^\d+x\d+$/);
 
+    // every SPOT (after the first line) should be "down" initially
+    for (const line of lines.slice(1)) {
+      assert.equal(line, 'down');
+    }
+  });
 });
 
 

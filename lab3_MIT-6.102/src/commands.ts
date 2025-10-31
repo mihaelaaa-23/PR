@@ -2,7 +2,7 @@
  * Redistribution of original or derived work requires permission of course staff.
  */
 
-import { Board } from './board';
+import { Board } from './board.js';
 
 /**
  * String-based commands provided by the Memory Scramble game.
@@ -21,7 +21,7 @@ import { Board } from './board';
  *          described in the ps4 handout
  */
 export async function look(board: Board, playerId: string): Promise<string> {
-    throw new Error('look function not implemented');
+    return board.renderFor(playerId);
     // implement with glue code only, at most three lines
 }
 
