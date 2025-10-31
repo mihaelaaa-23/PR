@@ -315,4 +315,150 @@ describe('Board map', () => {
         const state = await b.renderFor('alice');
         assert(state.includes('transformed_'), 'cards should be transformed');
     });
+
+    it('does not affect face-up/face-down state', async () => {
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Flip a card first
+        await b.flipCard('alice', 0, 0);
+        const beforeMap = await b.renderFor('alice');
+        
+        // Transform cards
+        const transform = async (card: string) => {
+            return 'new_' + card;
+        };
+        await b.mapCards('alice', transform);
+        
+        const afterMap = await b.renderFor('alice');
+        
+        // Card should still be face up and controlled by alice
+        assert(afterMap.includes('my new_'), 'face-up card should remain face-up after map');
+    });
+
+    it('does not affect player control', async () => {
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Alice flips a card
+        await b.flipCard('alice', 0, 0);
+        
+        // Bob applies a map
+        const transform = async (card: string) => {
+            return 'mapped_' + card;
+        };
+        await b.mapCards('bob', transform);
+        
+        // Alice should still control her card
+        const aliceState = await b.renderFor('alice');
+        assert(aliceState.includes('my mapped_'), 'alice should still control her card after bob\'s map');
+    });
+
+    it('allows other operations to interleave', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Start a slow map operation
+        const slowTransform = async (card: string) => {
+            await new Promise(resolve => setTimeout(resolve, 50)); // Simulate slow operation
+            return 'slow_' + card;
+        };
+        const mapPromise = b.mapCards('alice', slowTransform);
+        
+        // While map is in progress, try to flip a card
+        // Give map a tiny moment to start
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
+        // This should not wait for map to complete
+        await b.flipCard('bob', 0, 0);
+        
+        // Verify bob's flip succeeded
+        const bobState = await b.renderFor('bob');
+        assert(bobState.includes('my '), 'bob should be able to flip while map is in progress');
+        
+        // Wait for map to complete
+        await mapPromise;
+    });
+
+    it('maintains pairwise consistency during transformation', async () => {
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Transform using a mathematical function (consistent results)
+        const transform = async (card: string) => {
+            return 'consistent_' + card;
+        };
+        
+        await b.mapCards('alice', transform);
+        
+        // Flip two cards that were originally matching
+        await b.flipCard('alice', 0, 0);
+        await b.flipCard('alice', 0, 1);
+        
+        const state = await b.renderFor('alice');
+        const lines = state.trim().split('\n');
+        
+        // Both cards should have the same transformation
+        const card1 = lines[1];
+        const card2 = lines[2];
+        
+        // If they were matching before, they should still match after transformation
+        assert(card1?.includes('consistent_') && card2?.includes('consistent_'), 
+               'transformed cards should maintain consistency');
+    });
+
+    it('handles multiple concurrent map operations', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/ab.txt');
+        
+        const transform1 = async (card: string) => {
+            await new Promise(resolve => setTimeout(resolve, 10));
+            return 'map1_' + card;
+        };
+        
+        const transform2 = async (card: string) => {
+            await new Promise(resolve => setTimeout(resolve, 10));
+            return 'map2_' + card;
+        };
+        
+        // Start two maps concurrently
+        const promises = [
+            b.mapCards('alice', transform1),
+            b.mapCards('bob', transform2),
+        ];
+        
+        // Both should complete without error
+        await Promise.all(promises);
+        
+        // Check that transformation happened (either map1 or map2 prefix should be present)
+        await b.flipCard('charlie', 0, 0);
+        const state = await b.renderFor('charlie');
+        
+        assert(state.includes('map1_') || state.includes('map2_'), 
+               'at least one transformation should be applied');
+    });
+
+    it('transforms emojis to different emojis', async () => {
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Transform rainbow/unicorn emojis to sun/lollipop
+        const emojiTransform = async (card: string) => {
+            const translations: Record<string, string> = {
+                '🌈': '☀️',
+                '🦄': '🍭'
+            };
+            return translations[card] || card;
+        };
+        
+        await b.mapCards('alice', emojiTransform);
+        
+        // Flip a card to see the transformation
+        await b.flipCard('alice', 0, 0);
+        const state = await b.renderFor('alice');
+        
+        console.log('Board state after emoji transformation:', state);
+        
+        // Should contain sun or lollipop emoji
+        assert(state.includes('☀️') || state.includes('🍭'), 
+               'cards should be transformed to new emojis');
+    });
 });

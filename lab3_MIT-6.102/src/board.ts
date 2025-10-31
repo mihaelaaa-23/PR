@@ -324,25 +324,47 @@ export class Board {
 
     /**
      * Apply a transformation function to all cards on the board.
+     * Transforms all cards without affecting face-up/face-down state or control.
+     * Maintains pairwise consistency: matching pairs remain matching during transformation.
+     * Other operations can interleave with map() while it's in progress.
+     * 
      * @param player the player ID performing the map
-     * @param f transformation function from card to card
+     * @param f mathematical transformation function from card to card
      * @returns the updated board state
      */
     public async mapCards(player: string, f: (card: string) => Promise<string>): Promise<string> {
+        // First pass: collect all unique cards and compute transformations WITHOUT holding the lock
+        // This allows other operations to interleave while f() is executing
         await this.acquireLock();
+        const uniqueCards = new Set<string>();
         try {
-            // Apply transformation to each card, maintaining pairs
-            const transformedCards = new Map<string, string>();
-            
             for (let r = 0; r < this.rows; r++) {
                 for (let c = 0; c < this.cols; c++) {
                     const spot = this.grid[r]?.[c];
                     if (spot && spot.card !== null) {
-                        // Cache transformed values to maintain consistency
-                        if (!transformedCards.has(spot.card)) {
-                            const newCard = await f(spot.card);
-                            transformedCards.set(spot.card, newCard);
-                        }
+                        uniqueCards.add(spot.card);
+                    }
+                }
+            }
+        } finally {
+            this.releaseLock();
+        }
+        
+        // Compute all transformations WITHOUT holding the lock
+        // This allows other operations to proceed while f() executes
+        const transformedCards = new Map<string, string>();
+        for (const card of uniqueCards) {
+            const newCard = await f(card);
+            transformedCards.set(card, newCard);
+        }
+        
+        // Second pass: apply transformations atomically
+        await this.acquireLock();
+        try {
+            for (let r = 0; r < this.rows; r++) {
+                for (let c = 0; c < this.cols; c++) {
+                    const spot = this.grid[r]?.[c];
+                    if (spot && spot.card !== null && transformedCards.has(spot.card)) {
                         spot.card = transformedCards.get(spot.card) ?? spot.card;
                     }
                 }
