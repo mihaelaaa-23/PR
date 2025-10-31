@@ -43,8 +43,8 @@ export async function look(board: Board, playerId: string): Promise<string> {
  *         in the ps4 handout.
  */
 export async function flip(board: Board, playerId: string, row: number, column: number): Promise<string> {
-    throw new Error('flip function not implemented');
-    // implement with glue code only, at most three lines
+    await board.flipCard(playerId, row, column);
+    return board.renderFor(playerId);
 }
 
 /**
@@ -71,8 +71,7 @@ export async function flip(board: Board, playerId: string, row: number, column: 
  *          in the format described in the ps4 handout
  */
 export async function map(board: Board, playerId: string, f: (card: string) => Promise<string>): Promise<string> {
-    throw new Error('map function not implemented');
-    // implement with glue code only, at most three lines
+    return board.mapCards(playerId, f);
 }
 
 /**
@@ -86,6 +85,5 @@ export async function map(board: Board, playerId: string, f: (card: string) => P
  *          format described in the ps4 handout
  */
 export async function watch(board: Board, playerId: string): Promise<string> {
-    throw new Error('watch function not implemented');
-    // implement with glue code only, at most three lines
+    return board.watch(playerId);
 }
