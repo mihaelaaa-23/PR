@@ -146,82 +146,101 @@ export class Board {
     }
 
     public async flipCard(player: string, row: number, col: number): Promise<void> {
-        await this.acquireLock();
-        try {
-            // First, clean up any matched pairs or non-matched pairs from previous turns
-            this.cleanupCompletedTurns();
-
-            // validate coordinates
-            if (row < 0 || row >= this.rows || col < 0 || col >= this.cols) {
-                throw new Error('invalid coordinates');
-            }
+        // Keep trying until successful or error
+        while (true) {
+            await this.acquireLock();
             
-            const spot = this.grid[row]?.[col];
-            if (!spot || spot.card === null) {
-                throw new Error('cannot flip: no card at position');
-            }
+            try {
+                // First, clean up any matched pairs or non-matched pairs from previous turns
+                const didCleanup = this.cleanupCompletedTurns();
+                if (didCleanup) {
+                    // Notify watchers that board changed due to cleanup
+                    this.notifyWatchers();
+                }
 
-            // check if card is already controlled by this player
-            if (spot.controller === player && spot.faceUp) {
-                throw new Error('cannot flip: card already controlled by you');
-            }
+                // validate coordinates
+                if (row < 0 || row >= this.rows || col < 0 || col >= this.cols) {
+                    throw new Error('invalid coordinates');
+                }
+                
+                const spot = this.grid[row]?.[col];
+                if (!spot || spot.card === null) {
+                    throw new Error('cannot flip: no card at position');
+                }
 
-            // Wait if card is controlled by another player
-            if (spot.controller !== null && spot.controller !== player) {
-                this.releaseLock();
-                // Wait for the board to change
-                await new Promise<void>(resolve => {
-                    this.watchers.add(resolve);
-                });
-                // Try again
-                return this.flipCard(player, row, col);
-            }
+                // check if card is already controlled by this player
+                if (spot.controller === player && spot.faceUp) {
+                    throw new Error('cannot flip: card already controlled by you');
+                }
 
-            // Check if player already controls another card
-            let controlledCount = 0;
-            let firstCardRow = -1;
-            let firstCardCol = -1;
-            for (let r = 0; r < this.rows; r++) {
-                for (let c = 0; c < this.cols; c++) {
-                    const s = this.grid[r]?.[c];
-                    if (s && s.controller === player && s.faceUp) {
-                        controlledCount++;
-                        if (firstCardRow === -1) {
-                            firstCardRow = r;
-                            firstCardCol = c;
+                // Wait if card is controlled by another player
+                if (spot.controller !== null && spot.controller !== player) {
+                    // Release lock and wait for board to change
+                    const waitPromise = new Promise<void>(resolve => {
+                        this.watchers.add(resolve);
+                    });
+                    this.releaseLock();
+                    await waitPromise;
+                    // Loop back to try again
+                    continue;
+                }
+
+                // Check if player already controls another card
+                let controlledCount = 0;
+                let firstCardRow = -1;
+                let firstCardCol = -1;
+                for (let r = 0; r < this.rows; r++) {
+                    for (let c = 0; c < this.cols; c++) {
+                        const s = this.grid[r]?.[c];
+                        if (s && s.controller === player && s.faceUp) {
+                            controlledCount++;
+                            if (firstCardRow === -1) {
+                                firstCardRow = r;
+                                firstCardCol = c;
+                            }
                         }
                     }
                 }
-            }
 
-            // If player already has 2 cards up, they shouldn't
-            if (controlledCount >= 2) {
-                throw new Error('cannot flip: you already control 2 cards');
-            }
+                // If player already has 2 cards up, they shouldn't
+                if (controlledCount >= 2) {
+                    throw new Error('cannot flip: you already control 2 cards');
+                }
 
-            // Flip the card
-            spot.faceUp = true;
-            spot.controller = player;
+                // Flip the card
+                spot.faceUp = true;
+                spot.controller = player;
 
-            // If this is the second card, mark the result for next cleanup
-            if (controlledCount === 1) {
-                const firstSpot = this.grid[firstCardRow]?.[firstCardCol];
-                if (firstSpot && firstSpot.card === spot.card) {
-                    // Match! Mark both for removal (will happen on next action)
-                    // For now, they stay visible
-                } else {
-                    // No match - will be flipped down on next action
+                // If this is the second card, mark the result for next cleanup
+                if (controlledCount === 1) {
+                    const firstSpot = this.grid[firstCardRow]?.[firstCardCol];
+                    if (firstSpot && firstSpot.card === spot.card) {
+                        // Match! Mark both for removal (will happen on next action)
+                        // For now, they stay visible
+                    } else {
+                        // No match - will be flipped down on next action
+                    }
+                }
+
+                this.checkRep();
+                this.notifyWatchers();
+                
+                // Success - exit the loop
+                return;
+            } catch (error) {
+                // Release lock before throwing
+                this.releaseLock();
+                throw error;
+            } finally {
+                // Only release if we're exiting successfully
+                if (this.lock.locked) {
+                    this.releaseLock();
                 }
             }
-
-            this.checkRep();
-            this.notifyWatchers();
-        } finally {
-            this.releaseLock();
         }
     }
 
-    private cleanupCompletedTurns(): void {
+    private cleanupCompletedTurns(): boolean {
         // Find all players who have 2 cards showing
         const playerCards = new Map<string, Array<{row: number, col: number, card: string}>>();
         
@@ -235,6 +254,8 @@ export class Board {
                 }
             }
         }
+
+        let cleanedUp = false;
 
         // For each player with 2 cards, check if they match
         for (const [player, cards] of playerCards.entries()) {
@@ -255,6 +276,7 @@ export class Board {
                             spot2.faceUp = false;
                             spot2.controller = null;
                         }
+                        cleanedUp = true;
                     } else {
                         // No match! Turn both cards face down
                         const spot1 = this.grid[card1.row]?.[card1.col];
@@ -267,10 +289,13 @@ export class Board {
                             spot2.faceUp = false;
                             spot2.controller = null;
                         }
+                        cleanedUp = true;
                     }
                 }
             }
         }
+
+        return cleanedUp;
     }
 
     /**

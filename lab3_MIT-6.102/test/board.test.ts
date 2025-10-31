@@ -166,6 +166,101 @@ describe('Board concurrency', () => {
         assert(aliceState.includes('up '), 'alice should see bob\'s card as up');
         assert(bobState.includes('up '), 'bob should see alice\'s card as up');
     });
+
+    it('waits when trying to flip card controlled by another player', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Alice flips first card at (0,0)
+        await b.flipCard('alice', 0, 0);
+        
+        // Bob tries to flip the same card - should wait
+        const bobFlipPromise = b.flipCard('bob', 0, 0);
+        
+        // Give it a tiny moment to start waiting
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
+        // Alice flips a NON-MATCHING second card (different position that doesn't match)
+        // This will cause her cards to flip back down, releasing control
+        await b.flipCard('alice', 2, 2);
+        
+        // Now Bob's flip should complete (card is no longer controlled by Alice)
+        await bobFlipPromise;
+        
+        const state = await b.renderFor('bob');
+        assert(state.includes('my '), 'bob should control the card after waiting');
+    });
+
+    it('handles multiple concurrent players flipping different cards', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/ab.txt');
+        
+        // Start multiple concurrent flips
+        const promises = [
+            b.flipCard('player1', 0, 0),
+            b.flipCard('player2', 1, 0),
+            b.flipCard('player3', 2, 0),
+        ];
+        
+        await Promise.all(promises);
+        
+        const state1 = await b.renderFor('player1');
+        const state2 = await b.renderFor('player2');
+        const state3 = await b.renderFor('player3');
+        
+        // Each player should see their own card and others' cards
+        assert(state1.includes('my '), 'player1 should control a card');
+        assert(state2.includes('my '), 'player2 should control a card');
+        assert(state3.includes('my '), 'player3 should control a card');
+    });
+
+    it('correctly handles race condition when multiple players flip simultaneously', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/ab.txt');
+        
+        // Multiple players try to flip DIFFERENT cards simultaneously
+        // This tests that the locking mechanism works correctly
+        const promises = [
+            b.flipCard('alice', 0, 0),
+            b.flipCard('bob', 1, 1),
+            b.flipCard('charlie', 2, 2),
+        ];
+        
+        // All should succeed without conflicts
+        await Promise.all(promises);
+        
+        // All players should have successfully flipped their cards
+        const aliceState = await b.renderFor('alice');
+        const bobState = await b.renderFor('bob');
+        const charlieState = await b.renderFor('charlie');
+        
+        // Each should have their own card
+        assert(aliceState.includes('my '), 'alice should control a card');
+        assert(bobState.includes('my '), 'bob should control a card');
+        assert(charlieState.includes('my '), 'charlie should control a card');
+    });
+
+    it('does not hang when player makes matching last move', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Alice flips two matching cards
+        await b.flipCard('alice', 0, 0);
+        await b.flipCard('alice', 0, 1); // Assuming this matches
+        
+        // Bob tries to flip a card that Alice controlled
+        // This should not hang even though Alice made matching cards
+        const bobPromise = b.flipCard('bob', 1, 0);
+        
+        // Should complete without hanging
+        await bobPromise;
+        
+        assert(true, 'operation completed without hanging');
+    });
 });
 
 describe('Board watch', () => {

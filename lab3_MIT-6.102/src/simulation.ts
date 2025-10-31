@@ -17,9 +17,11 @@ async function simulationMain(): Promise<void> {
     const filename = 'boards/ab.txt';
     const board: Board = await Board.parseFromFile(filename);
     const size = 5;
-    const players = 1;
+    const players = 3; // Increased from 1 to 3 for multi-player simulation
     const tries = 10;
     const maxDelayMilliseconds = 100;
+
+    console.log('Starting simulation with', players, 'players');
 
     // start up one or more players as concurrent asynchronous function calls
     const playerPromises: Array<Promise<void>> = [];
@@ -29,23 +31,38 @@ async function simulationMain(): Promise<void> {
     // wait for all the players to finish (unless one throws an exception)
     await Promise.all(playerPromises);
 
+    console.log('Simulation complete');
+
     /** @param playerNumber player to simulate */
     async function player(playerNumber: number): Promise<void> {
-        // TODO set up this player on the board if necessary
+        const playerName = `player${playerNumber}`;
+        console.log(`${playerName} starting`);
 
         for (let jj = 0; jj < tries; ++jj) {
             try {
                 await timeout(Math.random() * maxDelayMilliseconds);
-                // TODO try to flip over a first card at (randomInt(size), randomInt(size))
-                //      which might wait until this player can control that card
+                
+                // Try to flip over a first card at random position
+                const row1 = randomInt(size);
+                const col1 = randomInt(size);
+                console.log(`${playerName} attempting first flip at (${row1}, ${col1})`);
+                await board.flipCard(playerName, row1, col1);
+                console.log(`${playerName} flipped first card at (${row1}, ${col1})`);
 
                 await timeout(Math.random() * maxDelayMilliseconds);
-                // TODO and if that succeeded,
-                //      try to flip over a second card at (randomInt(size), randomInt(size))
+                
+                // Try to flip over a second card at random position
+                const row2 = randomInt(size);
+                const col2 = randomInt(size);
+                console.log(`${playerName} attempting second flip at (${row2}, ${col2})`);
+                await board.flipCard(playerName, row2, col2);
+                console.log(`${playerName} flipped second card at (${row2}, ${col2})`);
             } catch (err) {
-                console.error('attempt to flip a card failed:', err);
+                console.error(`${playerName} attempt to flip a card failed:`, err);
             }
         }
+        
+        console.log(`${playerName} finished`);
     }
 }
 
