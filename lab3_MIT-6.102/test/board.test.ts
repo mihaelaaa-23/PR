@@ -281,6 +281,143 @@ describe('Board watch', () => {
         const newState = await watchPromise;
         assert(newState.includes('up ') || newState.includes('my '), 'watch should return updated state');
     });
+
+    it('watch resolves when card flips face up', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        const watchPromise = b.watch('viewer');
+        
+        // Flip a card
+        setTimeout(async () => {
+            await b.flipCard('alice', 0, 0);
+        }, 50);
+        
+        const newState = await watchPromise;
+        // Viewer sees alice's card as "up", not "my"
+        assert(newState.includes('up ') || newState.includes('my '), 'watch should detect card flipping face up');
+    });
+
+    it('watch resolves when cards are removed (matched)', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Alice flips first card
+        await b.flipCard('alice', 0, 0);
+        
+        // Start watching
+        const watchPromise = b.watch('bob');
+        
+        // Alice flips matching card
+        setTimeout(async () => {
+            await b.flipCard('alice', 0, 1); // Matching card
+        }, 50);
+        
+        // Watch should resolve when cards change
+        const newState = await watchPromise;
+        assert(newState, 'watch should resolve when cards are removed');
+    });
+
+    it('watch resolves when cards flip down (non-match)', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Alice flips first card
+        await b.flipCard('alice', 0, 0);
+        
+        // Start watching
+        const watchPromise = b.watch('bob');
+        
+        // Alice flips non-matching card
+        setTimeout(async () => {
+            await b.flipCard('alice', 2, 2); // Non-matching
+        }, 50);
+        
+        // Watch should resolve when cards flip down
+        const newState = await watchPromise;
+        assert(newState, 'watch should resolve when cards flip face down');
+    });
+
+    it('watch resolves when cards are transformed by map', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Start watching
+        const watchPromise = b.watch('viewer');
+        
+        // Apply map transformation
+        setTimeout(async () => {
+            await b.mapCards('alice', async (card: string) => 'new_' + card);
+        }, 50);
+        
+        // Watch should resolve when cards change strings
+        const newState = await watchPromise;
+        assert(newState, 'watch should resolve when card strings change');
+    });
+
+    it('concurrent look does not wait for watch', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Start a watch that will wait
+        const watchPromise = b.watch('alice');
+        
+        // Concurrent look should not wait
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const lookState = await b.renderFor('bob');
+        
+        assert(lookState.includes('3x3'), 'look should complete immediately even with pending watch');
+        
+        // Trigger the watch to complete
+        await b.flipCard('charlie', 0, 0);
+        await watchPromise;
+    });
+
+    it('player can use other commands while watching', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Alice starts watching
+        const watchPromise = b.watch('alice');
+        
+        // Alice can still look at the board
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const lookState = await b.renderFor('alice');
+        assert(lookState.includes('3x3'), 'alice can look while watching');
+        
+        // Complete the watch
+        await b.flipCard('bob', 0, 0);
+        await watchPromise;
+    });
+
+    it('multiple watchers all get notified', async function() {
+        this.timeout(5000);
+        
+        const b = await Board.parseFromFile('boards/perfect.txt');
+        
+        // Multiple players start watching
+        const watch1 = b.watch('alice');
+        const watch2 = b.watch('bob');
+        const watch3 = b.watch('charlie');
+        
+        // Make a change
+        setTimeout(async () => {
+            await b.flipCard('player', 0, 0);
+        }, 100);
+        
+        // All watches should resolve
+        const [state1, state2, state3] = await Promise.all([watch1, watch2, watch3]);
+        
+        assert(state1.includes('up ') || state1.includes('my '), 'alice watch should resolve');
+        assert(state2.includes('up ') || state2.includes('my '), 'bob watch should resolve');
+        assert(state3.includes('up ') || state3.includes('my '), 'charlie watch should resolve');
+    });
 });
 
 describe('Board map', () => {
