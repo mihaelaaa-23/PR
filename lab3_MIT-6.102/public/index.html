@@ -113,11 +113,8 @@
       return hostname === 'localhost' || hostname === '127.0.0.1';
     }
 
-    // redirect to https if necessary, because requests to localhost
-    // are blocked by CORS unless page is loaded securely
-    if (! isLocalHost(document.location.hostname) && document.location.protocol === "http:") {
-      document.location.protocol = "https:";
-    }
+    // Note: HTTPS redirect removed to allow HTTP connections from other devices
+    // For production use, you should set up HTTPS with proper certificates
 
     /**
     * Main program for Memory Scramble user interface.
@@ -139,11 +136,9 @@
       const updateDropdown = document.getElementById('memory-update');
       const playButton = document.getElementById('memory-play');
       if (serverBox && updateDropdown) {
-        serverBox.value = (
-          isLocalHost(document.location.hostname)
-            ? `${document.location.hostname}:${document.location.port}`
-            : 'localhost:8080'
-        );
+        // Default to current hostname and port, which works for both local and remote access
+        serverBox.value = `${document.location.hostname}:${document.location.port || '8080'}`;
+        
         serverBox.addEventListener('keydown', function(event) {
           if (event.key === 'Enter') {
             serverBox.blur();
