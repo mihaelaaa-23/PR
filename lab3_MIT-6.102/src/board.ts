@@ -24,7 +24,10 @@ export class Board {
     private readonly cols: number;
     private readonly grid: Spot[][]; //grid
     private readonly watchers: Set<() => void> = new Set();
-    private readonly lock = { locked: false };
+    // Map from "row,col" to array of waiting callbacks for that card
+    private readonly cardWaiters: Map<string, Array<() => void>> = new Map();
+    private readonly lockWaiters: Array<() => void> = [];
+    private lockHeld = false;
 
     // Abstraction function:
     //   AF(rows, cols, grid) = a Memory Scramble game board with dimensions rows x cols,
@@ -33,6 +36,7 @@ export class Board {
     //       - card: the card string at this position (null if removed)
     //       - faceUp: true if card is currently showing, false if face-down
     //       - controller: the player ID who flipped this card (null if no controller)
+    //     cardWaiters maps "row,col" keys to arrays of callbacks waiting for that card to become available
     //
     // Representation invariant:
     //   - rows > 0 and cols > 0
@@ -41,18 +45,26 @@ export class Board {
     //   - for all spots: if card is null, then faceUp is false and controller is null
     //   - for all spots: if card is not null, then card matches CARD_REGEX
     //   - for all spots: if controller is not null, then faceUp is true
+    //   - lockHeld is true if and only if some operation currently holds the lock
+    //   - lockWaiters contains callbacks waiting to acquire the lock
+    //   - cardWaiters keys are valid "row,col" strings for positions on the board
     //
     // Safety from rep exposure:
-    //   - rows, cols are immutable primitives
+    //   - rows, cols, lockHeld are immutable primitives or primitive state
     //   - grid is private and never returned directly
     //   - all methods return strings or void, never internal references
     //   - Spot objects in grid are never exposed to clients
+    //   - lockWaiters, watchers, and cardWaiters are private and never returned
     //   - all public methods acquire lock before accessing mutable state
-
+    //
     // Thread safety argument:
-    //   - All public methods that access or modify the board state use the lock
-    //   - The lock ensures mutual exclusion for all board operations
+    //   - All public methods that access or modify the board state use acquireLock()/releaseLock()
+    //   - The lock (lockHeld + lockWaiters) ensures mutual exclusion for all board operations
+    //   - Lock uses promise-based waiting (not busy-waiting) via callback queue
+    //   - cardWaiters provides per-card waiting: when a card becomes available (controller set to null),
+    //     all waiters for that card are notified
     //   - Watchers set is protected by the lock when accessed
+    //   - When lock is released, the next waiter (if any) is immediately granted the lock
 
     private constructor(rows: number, cols:number, cardsRowMajor: string[]) {
         this.rows = rows;
@@ -75,6 +87,9 @@ export class Board {
         this.checkRep();
     }
 
+    /**
+     * Assert the representation invariant.
+     */
     private checkRep(): void {
         assert.strictEqual(this.grid.length, this.rows, 'grid/rows mismatch');
         for (const row of this.grid) {
@@ -86,33 +101,54 @@ export class Board {
                 } else {
                     assert(CARD_REGEX.test(spot.card), `invalid card string: ${spot.card}`);
                 }
+                if (spot.controller !== null) {
+                    assert.strictEqual(spot.faceUp, true, 'controlled card must be face up');
+                }
             }
         }
     }
     
+    /**
+     * Get a string representation of this board.
+     * @returns a string of the form "Board(RxC)" where R is the number of rows and C is the number of columns
+     */
     public toString(): string {
         return `Board(${this.rows}x${this.cols})`; 
     }
 
     /**
-     * Acquire the lock. Waits until lock is available.
+     * Acquire the lock. Waits until lock is available using promise-based waiting.
+     * @returns a promise that resolves when the lock is acquired
      */
     private async acquireLock(): Promise<void> {
-        while (this.lock.locked) {
-            await new Promise(resolve => setTimeout(resolve, 10));
+        if (!this.lockHeld) {
+            this.lockHeld = true;
+            return;
         }
-        this.lock.locked = true;
+        
+        // Lock is held, wait for it to be released
+        return new Promise<void>(resolve => {
+            this.lockWaiters.push(resolve);
+        });
     }
 
     /**
-     * Release the lock.
+     * Release the lock and notify the next waiter if any.
      */
     private releaseLock(): void {
-        this.lock.locked = false;
+        const nextWaiter = this.lockWaiters.shift();
+        if (nextWaiter) {
+            // Pass the lock to the next waiter
+            nextWaiter();
+        } else {
+            // No one waiting, release the lock
+            this.lockHeld = false;
+        }
     }
 
     /**
-     * Notify all watchers that the board has changed.
+     * Notify all watchers that the board has changed by calling their callback functions.
+     * Clears the watcher set after notifying all watchers.
      */
     private notifyWatchers(): void {
         for (const watcher of this.watchers) {
@@ -122,9 +158,44 @@ export class Board {
     }
 
     /**
-     * Get the current state of the board for a specific player.
-     * @param player the player ID
-     * @returns the board state as a string
+     * Notify all waiters for a specific card that the card is now available.
+     * @param row the row of the card
+     * @param col the column of the card
+     */
+    private notifyCardWaiters(row: number, col: number): void {
+        const key = `${row},${col}`;
+        const waiters = this.cardWaiters.get(key);
+        if (waiters) {
+            for (const waiter of waiters) {
+                waiter();
+            }
+            this.cardWaiters.delete(key);
+        }
+    }
+
+    /**
+     * Wait for a card to become available (not controlled by anyone).
+     * @param row the row of the card
+     * @param col the column of the card
+     * @returns a promise that resolves when the card becomes available
+     */
+    private waitForCard(row: number, col: number): Promise<void> {
+        const key = `${row},${col}`;
+        return new Promise<void>(resolve => {
+            const waiters = this.cardWaiters.get(key) || [];
+            waiters.push(resolve);
+            this.cardWaiters.set(key, waiters);
+        });
+    }
+
+    /**
+     * Get the current state of the board from a specific player's perspective.
+     * Shows cards controlled by the player as "my", cards controlled by others as "up" or "down",
+     * and removed cards as "none".
+     * 
+     * @param player the player ID; must be a nonempty string
+     * @returns the board state as a multi-line string in the format specified in the ps4 handout:
+     *          first line is "RxC" (dimensions), followed by one line per card showing its state
      */
     public async renderFor(player: string): Promise<string> {
         await this.acquireLock();
@@ -145,6 +216,22 @@ export class Board {
         }
     }
 
+    /**
+     * Flip a card at the specified position for the given player.
+     * If the card is controlled by another player and this is a first card flip, waits until it becomes available.
+     * If the card is controlled by any player and this is a second card flip, fails immediately.
+     * Follows the Memory Scramble game rules: players can flip at most 2 cards at a time,
+     * matching pairs are removed, non-matching pairs are flipped back down.
+     * 
+     * @param player the player ID making the flip; must be a nonempty string
+     * @param row the row index of the card to flip; must be in [0, rows)
+     * @param col the column index of the card to flip; must be in [0, cols)
+     * @returns a promise that resolves when the flip is complete
+     * @throws Error if the coordinates are invalid, if no card exists at that position,
+     *         if the player tries to flip a card they already control, or if the player
+     *         already controls 2 cards, or if this is a second card flip and the target card
+     *         is controlled by any player
+     */
     public async flipCard(player: string, row: number, col: number): Promise<void> {
         // Keep trying until successful or error
         while (true) {
@@ -152,7 +239,7 @@ export class Board {
             
             try {
                 // First, clean up any matched pairs or non-matched pairs from previous turns
-                const didCleanup = this.cleanupCompletedTurns();
+                const didCleanup = this.cleanupCompletedTurns(player);
                 if (didCleanup) {
                     // Notify watchers that board changed due to cleanup
                     this.notifyWatchers();
@@ -168,173 +255,192 @@ export class Board {
                     throw new Error('cannot flip: no card at position');
                 }
 
-                // check if card is already controlled by this player
+                // Check how many cards this player currently controls
+                let controlledCount = 0;
+                for (let r = 0; r < this.rows; r++) {
+                    for (let c = 0; c < this.cols; c++) {
+                        const s = this.grid[r]?.[c];
+                        if (s && s.controller === player && s.faceUp) {
+                            controlledCount++;
+                        }
+                    }
+                }
+
+                // If player already has 2 cards up, they shouldn't be able to flip more
+                if (controlledCount >= 2) {
+                    throw new Error('cannot flip: you already control 2 cards');
+                }
+
+                // CRITICAL FIX #2: Check if this is a second card flip
+                const isSecondCard = controlledCount === 1;
+
+                // If the target card is already controlled by this player, fail
                 if (spot.controller === player && spot.faceUp) {
                     throw new Error('cannot flip: card already controlled by you');
                 }
 
-                // Wait if card is controlled by another player
-                if (spot.controller !== null && spot.controller !== player) {
-                    // Release lock and wait for board to change
-                    const waitPromise = new Promise<void>(resolve => {
-                        this.watchers.add(resolve);
-                    });
+                // If this is a SECOND card and the target is controlled by ANY player, fail immediately (Rule 2-B)
+                if (isSecondCard && spot.controller !== null) {
+                    throw new Error('cannot flip: card is controlled by another player');
+                }
+
+                // If this is a FIRST card and the card is controlled by another player, wait
+                if (!isSecondCard && spot.controller !== null && spot.controller !== player) {
+                    // Release lock and wait for this specific card to become available
+                    const waitPromise = this.waitForCard(row, col);
                     this.releaseLock();
                     await waitPromise;
                     // Loop back to try again
                     continue;
                 }
 
-                // Check if player already controls another card
-                let controlledCount = 0;
-                let firstCardRow = -1;
-                let firstCardCol = -1;
-                for (let r = 0; r < this.rows; r++) {
-                    for (let c = 0; c < this.cols; c++) {
-                        const s = this.grid[r]?.[c];
-                        if (s && s.controller === player && s.faceUp) {
-                            controlledCount++;
-                            if (firstCardRow === -1) {
-                                firstCardRow = r;
-                                firstCardCol = c;
-                            }
-                        }
-                    }
-                }
-
-                // If player already has 2 cards up, they shouldn't
-                if (controlledCount >= 2) {
-                    throw new Error('cannot flip: you already control 2 cards');
-                }
-
                 // Flip the card
                 spot.faceUp = true;
                 spot.controller = player;
-
-                // If this is the second card, mark the result for next cleanup
-                if (controlledCount === 1) {
-                    const firstSpot = this.grid[firstCardRow]?.[firstCardCol];
-                    if (firstSpot && firstSpot.card === spot.card) {
-                        // Match! Mark both for removal (will happen on next action)
-                        // For now, they stay visible
-                    } else {
-                        // No match - will be flipped down on next action
-                    }
-                }
 
                 this.checkRep();
                 this.notifyWatchers();
                 
                 // Success - exit the loop
+                this.releaseLock();
                 return;
             } catch (error) {
                 // Release lock before throwing
                 this.releaseLock();
                 throw error;
-            } finally {
-                // Only release if we're exiting successfully
-                if (this.lock.locked) {
-                    this.releaseLock();
-                }
             }
         }
     }
 
-    private cleanupCompletedTurns(): boolean {
-        // Find all players who have 2 cards showing
-        const playerCards = new Map<string, Array<{row: number, col: number, card: string}>>();
+    /**
+     * Clean up completed turns for the player who is about to make a new first card flip.
+     * Checks if the player had 2 face-up cards from a previous turn.
+     * If the cards match, remove them from the board.
+     * If they don't match, flip them face down (only if not controlled by another player).
+     * 
+     * CRITICAL FIX #1: Only flip cards face-down if they're still controlled by the original player
+     * 
+     * @param player the player making the new flip
+     * @returns true if any cleanup was performed, false otherwise
+     */
+    private cleanupCompletedTurns(player: string): boolean {
+        // Find the cards controlled by THIS player
+        const playerCards: Array<{row: number, col: number, card: string}> = [];
         
         for (let r = 0; r < this.rows; r++) {
             for (let c = 0; c < this.cols; c++) {
                 const spot = this.grid[r]?.[c];
-                if (spot && spot.controller && spot.faceUp && spot.card) {
-                    const cards = playerCards.get(spot.controller) || [];
-                    cards.push({row: r, col: c, card: spot.card});
-                    playerCards.set(spot.controller, cards);
+                if (spot && spot.controller === player && spot.faceUp && spot.card) {
+                    playerCards.push({row: r, col: c, card: spot.card});
                 }
             }
         }
 
-        let cleanedUp = false;
-
-        // For each player with 2 cards, check if they match
-        for (const [player, cards] of playerCards.entries()) {
-            if (cards.length === 2) {
-                const [card1, card2] = cards;
-                if (card1 && card2) {
-                    if (card1.card === card2.card) {
-                        // Match! Remove both cards
-                        const spot1 = this.grid[card1.row]?.[card1.col];
-                        const spot2 = this.grid[card2.row]?.[card2.col];
-                        if (spot1) {
-                            spot1.card = null;
-                            spot1.faceUp = false;
-                            spot1.controller = null;
-                        }
-                        if (spot2) {
-                            spot2.card = null;
-                            spot2.faceUp = false;
-                            spot2.controller = null;
-                        }
-                        cleanedUp = true;
-                    } else {
-                        // No match! Turn both cards face down
-                        const spot1 = this.grid[card1.row]?.[card1.col];
-                        const spot2 = this.grid[card2.row]?.[card2.col];
-                        if (spot1) {
-                            spot1.faceUp = false;
-                            spot1.controller = null;
-                        }
-                        if (spot2) {
-                            spot2.faceUp = false;
-                            spot2.controller = null;
-                        }
-                        cleanedUp = true;
-                    }
-                }
-            }
+        // Only clean up if this player has exactly 2 cards (completed a turn)
+        if (playerCards.length !== 2) {
+            return false;
         }
 
-        return cleanedUp;
+        const [card1, card2] = playerCards;
+        if (!card1 || !card2) {
+            return false;
+        }
+
+        const spot1 = this.grid[card1.row]?.[card1.col];
+        const spot2 = this.grid[card2.row]?.[card2.col];
+        
+        if (!spot1 || !spot2) {
+            return false;
+        }
+
+        if (card1.card === card2.card) {
+            // Match! Remove both cards
+            spot1.card = null;
+            spot1.faceUp = false;
+            spot1.controller = null;
+            spot2.card = null;
+            spot2.faceUp = false;
+            spot2.controller = null;
+            
+            // Notify any waiters for these cards
+            this.notifyCardWaiters(card1.row, card1.col);
+            this.notifyCardWaiters(card2.row, card2.col);
+            
+            return true;
+        } else {
+            // No match! Turn both cards face down, but ONLY if still controlled by this player
+            // CRITICAL FIX #1: Check if each card is still controlled by this player
+            let cleanedUp = false;
+            
+            if (spot1.controller === player) {
+                spot1.faceUp = false;
+                spot1.controller = null;
+                this.notifyCardWaiters(card1.row, card1.col);
+                cleanedUp = true;
+            }
+            
+            if (spot2.controller === player) {
+                spot2.faceUp = false;
+                spot2.controller = null;
+                this.notifyCardWaiters(card2.row, card2.col);
+                cleanedUp = true;
+            }
+            
+            return cleanedUp;
+        }
     }
 
     /**
-     * Watch for changes to the board. Waits until the board state changes.
-     * @param player the player ID watching
-     * @returns a promise that resolves when the board changes
+     * Watch for changes to the board. Waits asynchronously until the board state changes
+     * (cards turning face up/down, being removed, or changing values).
+     * Uses promise-based waiting, not busy-waiting.
+     * 
+     * MAJOR FIX #2: Fixed race condition by getting initial state while holding the lock
+     * 
+     * @param player the player ID watching; must be a nonempty string
+     * @returns a promise that resolves with the updated board state when the board changes
      */
     public async watch(player: string): Promise<string> {
-        const currentState = await this.renderFor(player);
-        
         await this.acquireLock();
+        
         try {
-            // Add this watcher to be notified on next change
-            await new Promise<void>(resolve => {
+            // Register watcher while holding the lock to avoid race condition
+            const waitPromise = new Promise<void>(resolve => {
                 this.watchers.add(resolve);
-                this.releaseLock();
             });
+            
+            // Release lock before waiting
+            this.releaseLock();
+            
+            // Wait for a change
+            await waitPromise;
+            
+            // Return the new state
+            return this.renderFor(player);
         } catch (e) {
             this.releaseLock();
             throw e;
         }
-        
-        // Return the new state
-        return this.renderFor(player);
     }
 
     /**
      * Apply a transformation function to all cards on the board.
      * Transforms all cards without affecting face-up/face-down state or control.
      * Maintains pairwise consistency: matching pairs remain matching during transformation.
-     * Other operations can interleave with map() while it's in progress.
+     * The transformation is applied atomically per matching pair to ensure no player observes
+     * a state where one card of a matching pair is transformed but not its match.
+     * Other operations can interleave with map() while it's computing transformations.
+     * 
+     * MAJOR FIX #3: Improved pairwise consistency by applying transformations in matched pairs
+     * MINOR FIX #1: Added validation for transformed cards
      * 
      * @param player the player ID performing the map
      * @param f mathematical transformation function from card to card
      * @returns the updated board state
+     * @throws Error if f returns an invalid card string
      */
     public async mapCards(player: string, f: (card: string) => Promise<string>): Promise<string> {
-        // First pass: collect all unique cards and compute transformations WITHOUT holding the lock
-        // This allows other operations to interleave while f() is executing
+        // First pass: collect all unique cards WITHOUT holding the lock
         await this.acquireLock();
         const uniqueCards = new Set<string>();
         try {
@@ -355,10 +461,17 @@ export class Board {
         const transformedCards = new Map<string, string>();
         for (const card of uniqueCards) {
             const newCard = await f(card);
+            
+            // MINOR FIX #1: Validate the transformed card
+            if (!CARD_REGEX.test(newCard)) {
+                throw new Error(`invalid transformed card: "${newCard}"`);
+            }
+            
             transformedCards.set(card, newCard);
         }
         
         // Second pass: apply transformations atomically
+        // To maintain pairwise consistency, we transform all occurrences of a card at once
         await this.acquireLock();
         try {
             for (let r = 0; r < this.rows; r++) {
@@ -380,6 +493,14 @@ export class Board {
         return await this.renderFor(player);
     }
 
+    /**
+     * Get the view string for a spot from a player's perspective.
+     * 
+     * @param spot the spot to view
+     * @param player the player ID viewing the spot
+     * @returns "none" if no card, "down" if face-down, "my CARD" if controlled by player,
+     *          "up CARD" if face-up and controlled by another player or no one
+     */
     private viewOf(spot: Spot, player: string): string {
         if (spot.card === null) return 'none';
         if (!spot.faceUp) return 'down';
