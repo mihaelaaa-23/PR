@@ -137,7 +137,7 @@ describe('Board parse + render', () => {
 
 Command: `npm test -- --grep "Board parse"`
 
-![Test Results - Parsing](image.png)
+![Test Results - Parsing](images/image.png)
 ---
 
 
@@ -172,10 +172,10 @@ return new Promise(resolve => {
 
 
 Game showing matched pair before removal:
-![alt text](image-1.png)
+![alt text](images/image-1.png)
 
 Cards removed after next move:
-![alt text](image-2.png)
+![alt text](images/image-2.png)
 
 
 #### Testing Flip Operations
@@ -218,7 +218,7 @@ describe('Board flip operations', () => {
 **Test Results - Flipping**
 
 Command: `npm test -- --grep "Board flip"`
-![alt text](image-3.png)
+![alt text](images/image-3.png)
 
 ### Problem 3: Asynchronous Board with Concurrency Safety
 
@@ -321,7 +321,7 @@ it('waits when trying to flip card controlled by another player', async function
 });
 ```
 Command: `npm test -- --grep "Board concurrency"`
-![alt text](image-4.png)
+![alt text](images/image-4.png)
 
 ### The Cleanup Bug (Most Frustrating)
 
@@ -397,8 +397,8 @@ public async mapCards(player: string, f: (card: string) => Promise<string>): Pro
 
 **Pairwise Consistency:** If two cards match before `map()`, they remain matching during and after the transformation.
 
-![alt text](image-5.png)
-![alt text](image-6.png)
+![alt text](images/image-5.png)
+![alt text](images/image-6.png)
 
 **Testing:**
 ```typescript
@@ -417,7 +417,7 @@ it('transforms emojis to different emojis', async () => {
 });
 ```
 Command: `npm test -- --grep "allows other operations to interleave"`
-![alt text](image-7.png)
+![alt text](images/image-7.png)
 
 
 ### Problem 5: Watch Operation
