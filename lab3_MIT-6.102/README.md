@@ -287,6 +287,12 @@ private readonly cardWaiters: Map<string, Array<() => void>>;
 
 Now only players waiting for that specific card wake up.
 
+Case: Card controlled by another player
+![alt text](images/image-9.png)
+Case: Card already controlled by player
+![alt text](images/image-10.png)
+
+
 #### Testing Concurrency
 
 The hardest part was **testing concurrent behavior** - how do you verify that two things happen "at the same time"?
@@ -493,7 +499,11 @@ The web UI supports two update modes:
 - **Polling mode:** Periodically calls `look()` every 2 seconds
 - **Watching mode:** Continuously calls `watch()` to get instant updates
 
-![Screenshot: Web UI with watch mode]
+Web UI with `look()` and console prints every 2 seconds:
+![alt text](images/image-11.png)
+
+Web UI with `watch()` and console prints that waits to get notified:
+![alt text](images/image-12.png)
 
 **Testing:**
 ```typescript
