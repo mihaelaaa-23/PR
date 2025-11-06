@@ -298,6 +298,33 @@ export class Board {
                 spot.faceUp = true;
                 spot.controller = player;
 
+                // RULE 2-E FIX: If this is a second card, check for match immediately
+                if (isSecondCard) {
+                    // Find the first card controlled by this player
+                    let firstCard: {row: number, col: number, card: string} | null = null;
+                    for (let r = 0; r < this.rows; r++) {
+                        for (let c = 0; c < this.cols; c++) {
+                            if (r === row && c === col) continue; // Skip the card we just flipped
+                            const s = this.grid[r]?.[c];
+                            if (s && s.controller === player && s.faceUp && s.card) {
+                                firstCard = {row: r, col: c, card: s.card};
+                                break;
+                            }
+                        }
+                        if (firstCard) break;
+                    }
+
+                    // If cards don't match, immediately relinquish control (Rule 2-E)
+                    if (firstCard && firstCard.card !== spot.card) {
+                        spot.controller = null;
+                        const firstSpot = this.grid[firstCard.row]?.[firstCard.col];
+                        if (firstSpot) {
+                            firstSpot.controller = null;
+                        }
+                    }
+                    // If they match (Rule 2-D), keep control of both cards
+                }
+
                 this.checkRep();
                 this.notifyWatchers();
                 
@@ -315,16 +342,18 @@ export class Board {
     /**
      * Clean up completed turns for the player who is about to make a new first card flip.
      * Checks if the player had 2 face-up cards from a previous turn.
-     * If the cards match, remove them from the board.
-     * If they don't match, flip them face down (only if not controlled by another player).
+     * If the cards match (still controlled by player), remove them from the board (Rule 3-A).
+     * If they don't match (already lost control), flip them face down if not controlled (Rule 3-B).
      * 
-     * CRITICAL FIX #1: Only flip cards face-down if they're still controlled by the original player
+     * UPDATED: Now handles the case where non-matching cards already lost control
      * 
      * @param player the player making the new flip
      * @returns true if any cleanup was performed, false otherwise
      */
     private cleanupCompletedTurns(player: string): boolean {
-        // Find the cards controlled by THIS player
+        let cleanedUp = false;
+        
+        // RULE 3-A: Find and remove matching cards controlled by THIS player
         const playerCards: Array<{row: number, col: number, card: string}> = [];
         
         for (let r = 0; r < this.rows; r++) {
@@ -336,58 +365,45 @@ export class Board {
             }
         }
 
-        // Only clean up if this player has exactly 2 cards (completed a turn)
-        if (playerCards.length !== 2) {
-            return false;
+        // If player has exactly 2 matching cards, remove them
+        if (playerCards.length === 2) {
+            const [card1, card2] = playerCards;
+            if (card1 && card2 && card1.card === card2.card) {
+                const spot1 = this.grid[card1.row]?.[card1.col];
+                const spot2 = this.grid[card2.row]?.[card2.col];
+                
+                if (spot1 && spot2) {
+                    // Match! Remove both cards
+                    spot1.card = null;
+                    spot1.faceUp = false;
+                    spot1.controller = null;
+                    spot2.card = null;
+                    spot2.faceUp = false;
+                    spot2.controller = null;
+                    
+                    // Notify any waiters for these cards
+                    this.notifyCardWaiters(card1.row, card1.col);
+                    this.notifyCardWaiters(card2.row, card2.col);
+                    
+                    cleanedUp = true;
+                }
+            }
         }
-
-        const [card1, card2] = playerCards;
-        if (!card1 || !card2) {
-            return false;
-        }
-
-        const spot1 = this.grid[card1.row]?.[card1.col];
-        const spot2 = this.grid[card2.row]?.[card2.col];
         
-        if (!spot1 || !spot2) {
-            return false;
-        }
-
-        if (card1.card === card2.card) {
-            // Match! Remove both cards
-            spot1.card = null;
-            spot1.faceUp = false;
-            spot1.controller = null;
-            spot2.card = null;
-            spot2.faceUp = false;
-            spot2.controller = null;
-            
-            // Notify any waiters for these cards
-            this.notifyCardWaiters(card1.row, card1.col);
-            this.notifyCardWaiters(card2.row, card2.col);
-            
-            return true;
-        } else {
-            // No match! Turn both cards face down, but ONLY if still controlled by this player
-            // CRITICAL FIX #1: Check if each card is still controlled by this player
-            let cleanedUp = false;
-            
-            if (spot1.controller === player) {
-                spot1.faceUp = false;
-                spot1.controller = null;
-                this.notifyCardWaiters(card1.row, card1.col);
-                cleanedUp = true;
+        // RULE 3-B: Flip down any face-up cards that are not controlled by anyone
+        // (these are the non-matching cards from the previous turn)
+        for (let r = 0; r < this.rows; r++) {
+            for (let c = 0; c < this.cols; c++) {
+                const spot = this.grid[r]?.[c];
+                if (spot && spot.card !== null && spot.faceUp && spot.controller === null) {
+                    spot.faceUp = false;
+                    this.notifyCardWaiters(r, c);
+                    cleanedUp = true;
+                }
             }
-            
-            if (spot2.controller === player) {
-                spot2.faceUp = false;
-                spot2.controller = null;
-                this.notifyCardWaiters(card2.row, card2.col);
-                cleanedUp = true;
-            }
-            
-            return cleanedUp;
         }
+        
+        return cleanedUp;
     }
 
     /**
