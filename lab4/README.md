@@ -315,7 +315,7 @@ Results for WRITE_QUORUM=5:
 ✓ Results saved to 'quorum_analysis_results.json'
 ```
 
-![Quorum Analysis](quorum_analysis.png)
+![alt text](quorum_analysis.png)
 
 The generated plot shows four visualizations:
 1. **Write Quorum vs Latency**: Shows how median/average/P95 latencies change with quorum
