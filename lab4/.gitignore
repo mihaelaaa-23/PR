@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Test outputs
+*.png
+test_results/
+
+# OS
+.DS_Store
