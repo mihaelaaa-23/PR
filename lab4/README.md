@@ -213,8 +213,7 @@ RESULTS: 6 passed, 0 failed
 
 Ran 10,000 concurrent writes (20 threads, 100 keys) with quorum = 3:
 
-![alt text](image.png)
-https://vscode.dev/github/mihaelaaa-23/PR/blob/main/lab4/image.png
+![Output results](image.png)
 
 **Success rate**: 99.43% - The 57 failed writes were due to Flask's development server being overwhelmed under heavy concurrent load (connection resets). This is expected with Flask's built-in server; production would use Gunicorn.
 
@@ -316,8 +315,7 @@ Results for WRITE_QUORUM=5:
 ✓ Results saved to 'quorum_analysis_results.json'
 ```
 
-![alt text](quorum_analysis.png)
-https://vscode.dev/github/mihaelaaa-23/PR/blob/main/lab4/quorum_analysis.png
+![Quorum Analysis](quorum_analysis.png)
 
 The generated plot shows four visualizations:
 1. **Write Quorum vs Latency**: Shows how median/average/P95 latencies change with quorum

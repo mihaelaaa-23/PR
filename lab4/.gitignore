@@ -15,9 +15,5 @@ ENV/
 .vscode/
 .idea/
 
-# Test outputs
-*.png
-test_results/
-
 # OS
 .DS_Store
